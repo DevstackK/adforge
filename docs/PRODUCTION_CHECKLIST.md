@@ -1,0 +1,23 @@
+# Production checklist
+
+- [ ] Rotate all credentials and store them only in the deployment secret manager.
+- [ ] Use separate Clerk, Stripe, ad-platform and OpenAI projects per environment.
+- [ ] Confirm PostgreSQL point-in-time recovery and complete a restore drill.
+- [ ] Require TLS for PostgreSQL, Redis, S3 and all public traffic.
+- [ ] Restrict S3 bucket access; verify generated assets require signed URLs.
+- [ ] Register OAuth redirect URLs and complete Meta, Google, TikTok, Pinterest and LinkedIn app review.
+- [ ] Configure and review HeyGen avatars/voices, consent records and likeness rights if talking avatars are enabled.
+- [ ] Set ad-account spend caps and publish initially in paused state.
+- [ ] Configure Stripe tax, dunning, customer portal and webhook alerts.
+- [ ] Configure Clerk allowed origins, MFA policy and webhook retries.
+- [ ] Generate an AES-256-GCM key, document rotation and test re-encryption.
+- [ ] Ship logs to a redaction-aware sink and traces to an OTLP collector.
+- [ ] Alert on 5xx rate, queue age, job failures, database saturation, credit anomalies and webhook lag.
+- [ ] Run `npm run lint`, `npm run typecheck`, `npm test`, E2E tests and a Docker smoke test.
+- [ ] Run authenticated Clerk E2E with a dedicated test tenant and verify its webhook-provisioned local records.
+- [ ] Publish a minimal paused sandbox campaign on every enabled advertising provider and reconcile returned IDs.
+- [ ] Load-test generation enqueue, analytics and webhook endpoints.
+- [ ] Verify CSP in report-only mode against production Clerk domains before enforcement.
+- [ ] Complete privacy review, data retention policy, DPA and user deletion workflow.
+- [ ] Complete ad-policy review for generated claims, restricted categories and political advertising.
+- [ ] Document incident response, provider outage behavior and rollback ownership.
