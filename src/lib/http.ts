@@ -68,7 +68,12 @@ export async function parseJson<T>(
       415,
     );
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin)
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const requestOrigin = forwardedHost
+    ? `${forwardedProto ?? "https"}://${forwardedHost}`
+    : new URL(request.url).origin;
+  if (origin && origin !== requestOrigin)
     throw new AppError(
       "Cross-origin state changes are not allowed",
       "CSRF_REJECTED",

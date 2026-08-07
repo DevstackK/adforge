@@ -5,6 +5,11 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   serverExternalPackages: ["bullmq", "ioredis"],
   allowedDevOrigins: ["creative-greg-works-steve.trycloudflare.com"],
+  experimental: {
+    serverActions: {
+      allowedOrigins: ["creative-greg-works-steve.trycloudflare.com"],
+    },
+  },
   async headers() {
     const scriptPolicy = [
       "'self'",

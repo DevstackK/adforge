@@ -1,11 +1,13 @@
 import "server-only";
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { AppError, NotFoundError } from "@/lib/errors";
 import { recordCredits } from "@/server/credits";
 import { generationQueue } from "@/server/queue";
-import type { z } from "zod";
 import type { generateCopySchema, generateMediaSchema } from "./schemas";
 import type { Prisma } from "@/generated/prisma/client";
 import { isFeatureEnabled } from "@/server/features";
@@ -24,6 +26,31 @@ function openai() {
     maxRetries: 2,
   }));
 }
+
+let anthropicClient: Anthropic | undefined;
+function anthropic() {
+  if (!env().ANTHROPIC_API_KEY)
+    throw new AppError(
+      "AI provider is not configured",
+      "AI_NOT_CONFIGURED",
+      503,
+    );
+  return (anthropicClient ??= new Anthropic({
+    apiKey: env().ANTHROPIC_API_KEY,
+    timeout: 90_000,
+    maxRetries: 2,
+  }));
+}
+
+const copyVariantsSchema = z.object({
+  variants: z.array(
+    z.object({
+      content: z.string(),
+      rationale: z.string().optional(),
+      score: z.number().optional(),
+    }),
+  ),
+});
 
 const copyCredits: Record<string, number> = {
   BLOG: 4,
@@ -49,8 +76,11 @@ export async function generateCopy(
       productId: input.productId,
       userId: input.userId,
       kind: input.kind,
-      provider: "openai",
-      model: env().OPENAI_TEXT_MODEL,
+      provider: env().AI_TEXT_PROVIDER,
+      model:
+        env().AI_TEXT_PROVIDER === "anthropic"
+          ? env().ANTHROPIC_TEXT_MODEL
+          : env().OPENAI_TEXT_MODEL,
       status: "PROCESSING",
       prompt: input.brief,
       input,
@@ -66,23 +96,42 @@ export async function generateCopy(
       description: `${input.kind} generation`,
       referenceId: generation.id,
     });
-    const result = await openai().responses.create({
-      model: env().OPENAI_TEXT_MODEL,
-      input: [
-        {
-          role: "developer",
-          content: `You are AdForge's senior advertising strategist. Return JSON only as {"variants":[{"content":"...","rationale":"...","score":0-100}]}. Produce exactly ${input.variants} distinct, truthful, platform-safe variants in ${input.language}. Never invent product claims.`,
-        },
-        {
-          role: "user",
-          content: `Asset type: ${input.kind}\nAudience: ${input.audience}\nTone: ${input.tone}\nBrief:\n${input.brief}`,
-        },
-      ],
-      text: { format: { type: "json_object" } },
-    });
-    const parsed = JSON.parse(result.output_text) as {
-      variants: Array<{ content: string; rationale?: string; score?: number }>;
-    };
+    const systemPrompt = `You are AdForge's senior advertising strategist. Produce exactly ${input.variants} distinct, truthful, platform-safe variants in ${input.language}. Never invent product claims.`;
+    const userPrompt = `Asset type: ${input.kind}\nAudience: ${input.audience}\nTone: ${input.tone}\nBrief:\n${input.brief}`;
+    const parsed =
+      env().AI_TEXT_PROVIDER === "anthropic"
+        ? await (async () => {
+            const result = await anthropic().messages.parse({
+              model: env().ANTHROPIC_TEXT_MODEL,
+              max_tokens: 4096,
+              system: systemPrompt,
+              messages: [{ role: "user", content: userPrompt }],
+              output_config: { format: zodOutputFormat(copyVariantsSchema) },
+            });
+            if (!result.parsed_output)
+              throw new Error("AI returned no variants");
+            return result.parsed_output;
+          })()
+        : await (async () => {
+            const result = await openai().responses.create({
+              model: env().OPENAI_TEXT_MODEL,
+              input: [
+                {
+                  role: "developer",
+                  content: `${systemPrompt} Return JSON only as {"variants":[{"content":"...","rationale":"...","score":0-100}]}.`,
+                },
+                { role: "user", content: userPrompt },
+              ],
+              text: { format: { type: "json_object" } },
+            });
+            return JSON.parse(result.output_text) as {
+              variants: Array<{
+                content: string;
+                rationale?: string;
+                score?: number;
+              }>;
+            };
+          })();
     if (!Array.isArray(parsed.variants) || !parsed.variants.length)
       throw new Error("AI returned no variants");
     const variants = await db.$transaction(async (tx) => {
